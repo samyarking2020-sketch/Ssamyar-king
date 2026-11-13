@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>مسابقه ماشین حرفه‌ای - سام‌یار</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        body {
+            margin: 0;
+            padding: 0;
+            background: #0b0f19;
+            font-family: Tahoma, Arial, sans-serif;
+            color: #fff;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+        }
+        #game-container {
+            position: relative;
+            width: 100%;
+            max-width: 450px;
+            height: 100vh;
+            max-height: 850px;
+            background: #1a1a2e;
+            overflow: hidden;
+            box-shadow: 0 0 20px rgba(0, 255, 255, 0.3);
+            border-left: 2px solid #333;
+            border-right: 2px solid #333;
+        }
+        canvas {
+            display: block;
+            background: #222;
+        }
+        .ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            background: rgba(11, 15, 25, 0.85);
+            z-index: 10;
+            text-align: center;
+            padding: 20px;
+        }
+        h1 {
+            color: #00ffff;
+            font-size: 28px;
+            margin-bottom: 10px;
+            text-shadow: 0 0 10px rgba(0,255,255,0.5);
+        }
+        p {
+            font-size: 14px;
+            color: #aaa;
+            margin-bottom: 20px;
+            line-height: 1.6;
+        }
+        .btn {
+            background: linear-gradient(45deg, #00b4d8, #0077b6);
+            color: white;
+            border: none;
+            padding: 12px 35px;
+            font-size: 18px;
+            font-weight: bold;
+            border-radius: 30px;
+            cursor: pointer;
+            box-shadow: 0 5px 15px rgba(0, 180, 216, 0.4);
+            transition: 0.2s;
+        }
+        .btn:active {
+            transform: scale(0.95);
+        }
+        #hud {
+            position: absolute;
+            top: 15px;
+            left: 15px;
+            right: 15px;
+            display: flex;
+            justify-content: space-between;
+            font-size: 16px;
+            font-weight: bold;
+            z-index: 5;
+            pointer-events: none;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.8);
+        }
+        .hud-box {
+            background: rgba(0, 0, 0, 0.5);
+            padding: 8px 15px;
+            border-radius: 12px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        /* کنترل‌های لمسی موبایل پایین صفحه */
+        #touch-controls {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 140px;
+            display: flex;
+            z-index: 6;
+            pointer-events: auto;
+        }
+        .touch-btn {
+            flex: 1;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px dashed rgba(255, 255, 255, 0.1);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 32px;
+            color: rgba(255, 255, 255, 0.4);
+            transition: background 0.1s;
+        }
+        .touch-btn:active, .touch-btn.pressed {
+            background: rgba(0, 255, 255, 0.2);
+            color: #00ffff;
+        }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <div id="hud" style="display: none;">
+        <div class="hud-box">امتیاز: <span id="score-val">0</span></div>
+        <div class="hud-box">رکورد: <span id="high-val">0</span></div>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <!-- پنل کنترل‌های لمسی موبایل -->
+    <div id="touch-controls" style="display: none;">
+        <div class="touch-btn" id="btn-left">◀</div>
+        <div class="touch-btn" id="btn-right">▶</div>
+    </div>
+
+    <!-- منوی شروع / باخت -->
+    <div id="menu" class="ui-layer">
+        <h1>مسابقه سرعت سام‌یار</h1>
+        <p>ماشین‌ها را رد کن، زنده بمان و رکورد بزن!<br>هر ۲ ثانیه بقا = امتیاز بیشتر!<br>کنترل با دکمه‌های لمسی پایین صفحه یا فلش‌های کیبورد.</p>
+        <button class="btn" id="start-btn">شروع مسابقه</button>
+    </div>
+</div>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+function resizeCanvas() {
+    canvas.width = document.getElementById('game-container').clientWidth;
+    canvas.height = document.getElementById('game-container').clientHeight;
+}
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+
+// متغیرهای بازی
+let gameState = 'MENU'; // MENU, PLAYING, GAMEOVER
+let score = 0;
+let highScore = localStorage.getItem('samyar_racing_high') || 0;
+let gameSpeed = 5;
+let roadAnim = 0;
+let timeSurvived = 0;
+let lastScoreTime = 0;
+
+document.getElementById('high-val').innerText = highScore;
+
+// مشخصات ماشین بازیکن
+const player = {
+    x: canvas.width / 2 - 22,
+    y: canvas.height - 150,
+    width: 44,
+    height: 85,
+    speed: 6,
+    dx: 0
+};
+
+let obstacles = [];
+let particles = [];
+
+// کنترل‌ها
+const keys = { left: false, right: false };
+
+window.addEventListener('keydown', e => {
+    if (e.key === 'ArrowLeft' || e.key === 'a') keys.left = true;
+    if (e.key === 'ArrowRight' || e.key === 'd') keys.right = true;
+});
+window.addEventListener('keyup', e => {
+    if (e.key === 'ArrowLeft' || e.key === 'a') keys.left = false;
+    if (e.key === 'ArrowRight' || e.key === 'd') keys.right = false;
+});
+
+// دکمه‌های لمسی موبایل
+const btnLeft = document.getElementById('btn-left');
+const btnRight = document.getElementById('btn-right');
+
+['touchstart', 'mousedown'].forEach(evt => {
+    btnLeft.addEventListener(evt, (e) => { e.preventDefault(); keys.left = true; btnLeft.classList.add('pressed'); });
+    btnRight.addEventListener(evt, (e) => { e.preventDefault(); keys.right = true; btnRight.classList.add('pressed'); });
+});
+['touchend', 'mouseup', 'mouseleave'].forEach(evt => {
+    btnLeft.addEventListener(evt, (e) => { e.preventDefault(); keys.left = false; btnLeft.classList.remove('pressed'); });
+    btnRight.addEventListener(evt, (e) => { e.preventDefault(); keys.right = false; btnRight.classList.remove('pressed'); });
+});
+
+// شروع بازی
+document.getElementById('start-btn').addEventListener('click', () => {
+    document.getElementById('menu').style.display = 'none';
+    document.getElementById('hud').style.display = 'flex';
+    document.getElementById('touch-controls').style.display = 'flex';
+    resetGame();
+    gameState = 'PLAYING';
+    lastScoreTime = performance.now();
+});
+
+function resetGame() {
+    score = 0;
+    gameSpeed = 6;
+    obstacles = [];
+    particles = [];
+    player.x = canvas.width / 2 - player.width / 2;
+    document.getElementById('score-val').innerText = score;
+}
+
+// اسپان ماشین‌های حریف
+let spawnTimer = 0;
+function spawnObstacle() {
+    const laneWidth = canvas.width / 3;
+    const lane = Math.floor(Math.random() * 3);
+    const x = lane * laneWidth + (laneWidth - 44) / 2;
+    
+    obstacles.push({
+        x: x,
+        y: -120,
+        width: 44,
+        height: 85,
+        speed: gameSpeed + (Math.random() * 2 - 1),
+        color: ['#ff3333', '#ffcc00', '#33ccff', '#cc33ff'][Math.floor(Math.random() * 4)]
+    });
+}
+
+// رسم ماشین
+function drawCar(x, y, w, h, color, isPlayer = false) {
+    ctx.save();
+    ctx.shadowBlur = isPlayer ? 15 : 8;
+    ctx.shadowColor = color;
+    
+    // بدنه اصلی
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.roundRect(x, y, w, h, 10);
+    ctx.fill();
+
+    // شیشه‌ها
+    ctx.fillStyle = '#111';
+    ctx.fillRect(x + 6, y + 20, w - 12, 20);
+    ctx.fillRect(x + 6, y + h - 25, w - 12, 15);
+
+    // چراغ‌ها
+    ctx.fillStyle = isPlayer ? '#00ffff' : '#ff4444';
+    ctx.fillRect(x + 4, y + 2, 8, 4);
+    ctx.fillRect(x + w - 12, y + 2, 8, 4);
+
+    ctx.restore();
+}
+
+// حلقه اصلی بازی
+function update(timestamp) {
+    if (gameState === 'PLAYING') {
+        // افزایش امتیاز هر ۲ ثانیه بقا
+        if (timestamp - lastScoreTime > 2000) {
+            score += 10;
+            document.getElementById('score-val').innerText = score;
+            gameSpeed += 0.2; // افزایش تدریجی سختی
+            lastScoreTime = timestamp;
+        }
+
+        // حرکت بازیکن
+        if (keys.left) player.x -= player.speed;
+        if (keys.right) player.x += player.speed;
+
+        // محدودیت خروج از جاده
+        const roadMargin = 20;
+        if (player.x < roadMargin) player.x = roadMargin;
+        if (player.x > canvas.width - player.width - roadMargin) player.x = canvas.width - player.width - roadMargin;
+
+        // حرکت جاده
+        roadAnim += gameSpeed;
+        if (roadAnim > 40) roadAnim = 0;
+
+        // مدیریت موانع
+        spawnTimer++;
+        if (spawnTimer > Math.max(30, 90 - Math.floor(gameSpeed * 3))) {
+            spawnObstacle();
+            spawnTimer = 0;
+        }
+
+        for (let i = obstacles.length - 1; i >= 0; i--) {
+            obstacles[i].y += obstacles[i].speed;
+
+            // بررسی برخورد (Collision)
+            if (
+                player.x < obstacles[i].x + obstacles[i].width &&
+                player.x + player.width > obstacles[i].x &&
+                player.y < obstacles[i].y + obstacles[i].height &&
+                player.y + player.height > obstacles[i].y
+            ) {
+                gameState = 'GAMEOVER';
+                if (score > highScore) {
+                    highScore = score;
+                    localStorage.setItem('samyar_racing_high', highScore);
+                    document.getElementById('high-val').innerText = highScore;
+                }
+                document.getElementById('menu').style.display = 'flex';
+                document.querySelector('#menu h1').innerText = 'باختید! رکورد شما: ' + score;
+                document.getElementById('start-btn').innerText = 'تلاش دوباره';
+            }
+
+            // حذف موانع رد شده
+            if (obstacles[i].y > canvas.height) {
+                obstacles.splice(i, 1);
+            }
+        }
+    }
+
+    draw();
+    requestAnimationFrame(update);
+}
+
+// رندر گرافیک
+function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // رنگ جاده
+    ctx.fillStyle = '#1e1e24';
+    ctx.fillRect(15, 0, canvas.width - 30, canvas.height);
+
+    // خطوط وسط جاده
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 4;
+    ctx.setLineDash([25, 20]);
+    ctx.lineDashOffset = -roadAnim;
+
+    ctx.beginPath();
+    ctx.moveTo(canvas.width / 3, 0);
+    ctx.lineTo(canvas.width / 3, canvas.height);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo((canvas.width / 3) * 2, 0);
+    ctx.lineTo((canvas.width / 3) * 2, canvas.height);
+    ctx.stroke();
+    ctx.setLineDash([]); // ریست خط‌چین
+
+    // رسم موانع
+    for (let obs of obstacles) {
+        drawCar(obs.x, obs.y, obs.width, obs.height, obs.color, false);
+    }
+
+    // رسم ماشین بازیکن
+    drawCar(player.x, player.y, player.width, player.height, '#00ffcc', true);
+}
+
+requestAnimationFrame(update);
+</script>
+
+</body>
+</html>
